@@ -1,0 +1,224 @@
+---
+title: "Fine Tuning InSituType Phenotypes"
+output: html_notebook
+---
+
+## Libraries Used
+
+```{r}
+library(Seurat)
+library(tidyverse)
+```
+
+## Importing Data
+
+Reading in the data that was phenotyped using InSituType from Nanostring.
+
+```{r}
+manley_data = readRDS("Manley_SMI/results/rds/InSituType/manley_data_final.rds")
+```
+
+```{r, fig.height = 10, fig.width= 10}
+DimPlot(manley_data, label = T, group.by = "insitutype", repel = T) + 
+  theme(legend.position = "none")
+```
+
+## Subsetting data for T cells
+
+The first group that will be manually clustered/phenotyped will be the T cells. Would be nice to get some T-regs but will have to see.
+
+Where are the T cells in the plot?
+
+```{r, fig.height = 10, fig.width = 10}
+Idents(manley_data) = "insitutype"
+DimPlot(manley_data, label = T, group.by = "insitutype", 
+        cells.highlight = list(WhichCells(manley_data, idents = c("CD4 T cell",
+                                                                  "CD8 T cell",
+                                                                  "NKT cell",
+                                                                  "NK cell"))), 
+        repel = T,
+        raster.dpi = c(512, 512))
+```
+
+Looks slightly better than the assignments from SingleR but there are still a few red points upper middle and in the B cell grouping there.
+
+Now can actually subset to the NKT, NK, CD8, and CD4 positive T cells.
+
+```{r}
+t_cell_data = subset(x = manley_data, subset = insitutype %in% c("CD8 T cell",
+                                                                   "CD4 T cell",
+                                                                   "NKT cell",
+                                                                   "NK cell"))
+```
+
+## PCA and Clustering
+
+With the data subset, we have to rerun the PCA, UMAP, and then find neighbors for the cells.
+
+```{r}
+#t _cell_data = RunPCA(object = t_cell_data, assay = "SCT", npcs = 200, reduction.name = "pca_t_cells")
+# saveRDS(t_cell_data, "Manley_SMI/results/rds/InSituType/t_cell_seurat_pca.rds")
+# t_cell_data = readRDS("Manley_SMI/results/rds/InSituType/t_cell_seurat_pca.rds")
+# t_cell_data = RunUMAP(object = t_cell_data, reduction = "pca_t_cells", dims = 1:50, assay = "SCT",
+#                       n.components = 2, reduction.name = "SCT_umap_t_cells")
+# #clustering with louvain
+# t_cell_data = FindNeighbors(t_cell_data, dims = 1:50, verbose = TRUE, reduction = "pca_t_cells")
+# t_cell_data = FindClusters(t_cell_data, verbose = TRUE, resolution = 0.4)
+# 
+# saveRDS(t_cell_data, "Manley_SMI/results/rds/InSituType/T-cell_Louvain_Clustering.rds")
+t_cell_data = readRDS("Manley_SMI/results/rds/InSituType/T-cell_Louvain_Clustering.rds")
+DimPlot(t_cell_data, reduction = "SCT_umap_t_cells", group.by = "seurat_clusters", label = T)
+```
+
+```{r}
+Idents(t_cell_data) = "seurat_clusters"
+DimPlot(t_cell_data, label = T, group.by = "seurat_clusters",
+        cells.highlight = list(WhichCells(t_cell_data, idents = c("1"))),
+        repel = T, reduction = "SCT_umap_t_cells")
+```
+
+
+## Differential Gene Expression
+
+To be able to assign different phenotypes to the different clusters, have to find what makes those clusters different. 
+
+```{r}
+#DEGs = FindAllMarkers(t_cell_data, assay = "SCT")
+#saveRDS(DEGs, "Manley_SMI/results/rds/InSituType/T-cell_DEGS_inLouvainClusters.rds")
+DEGs = readRDS("Manley_SMI/results/rds/InSituType/T-cell_DEGS_inLouvainClusters.rds")
+DEGs %>%
+  filter(p_val_adj < 0.01 & abs(avg_log2FC) > 0.5)
+```
+
+Now can assign them the correct identities
+
+```{r}
+t_cell_data$Manual.InSituType = NA
+t_cell_data$Manual.InSituType = ifelse(is.na(t_cell_data$Manual.InSituType) & t_cell_data$seurat_clusters == 0, "CD8 T cell", t_cell_data$Manual.InSituType)
+# t_cell_data$Manual.InSituType = ifelse(is.na(t_cell_data$Manual.InSituType) & t_cell_data$seurat_clusters == 1, "Unknown (All negative fold change)", t_cell_data$Manual.InSituType)
+t_cell_data$Manual.InSituType = ifelse(is.na(t_cell_data$Manual.InSituType) & t_cell_data$seurat_clusters == 2, "Naive B cell", t_cell_data$Manual.InSituType)
+t_cell_data$Manual.InSituType = ifelse(is.na(t_cell_data$Manual.InSituType) & t_cell_data$seurat_clusters == 3, "Naive T cell", t_cell_data$Manual.InSituType)
+t_cell_data$Manual.InSituType = ifelse(is.na(t_cell_data$Manual.InSituType) & t_cell_data$seurat_clusters == 4, "NK cell", t_cell_data$Manual.InSituType)
+t_cell_data$Manual.InSituType = ifelse(is.na(t_cell_data$Manual.InSituType) & t_cell_data$seurat_clusters == 5, "gdT cell", t_cell_data$Manual.InSituType)
+t_cell_data$Manual.InSituType = ifelse(is.na(t_cell_data$Manual.InSituType) & t_cell_data$seurat_clusters == 6, "Naive CD4 T cell", t_cell_data$Manual.InSituType)
+t_cell_data$Manual.InSituType = ifelse(is.na(t_cell_data$Manual.InSituType) & t_cell_data$seurat_clusters == 7, "Possibly Mid-Rep (Misc. Cells)", t_cell_data$Manual.InSituType)
+```
+
+Dug more into the unknown class using the `Explore_Tcell_InsitutypeSubCluster1.R` and with T-tests (not optimal for the level of 0s but only think I could think of), the top 2 genes were FOXP3 and CTLA4 which are T-reg genes. Because of this, assigning `seurat_cluster` 1 to being Regulatory T cells.
+
+```{r}
+t_cell_data$Manual.InSituType = ifelse(is.na(t_cell_data$Manual.InSituType) & t_cell_data$seurat_clusters == 1, "Regulatory T cell", t_cell_data$Manual.InSituType)
+```
+
+
+## View T cell annotation on plot
+
+```{r}
+DimPlot(t_cell_data, reduction = "SCT_umap_t_cells", group.by = "Manual.InSituType", label = T, repel = T)
+```
+
+Time to put the manual annotations back in the main Seurat Object
+
+```{r}
+manley_data$final_insitutype = manley_data$insitutype
+manley_data$final_insitutype[manley_data$cell_ID %in% t_cell_data$cell_ID] = t_cell_data$Manual.InSituType
+```
+
+Can visualize to see how the new annotations look
+
+```{r, fig.height= 10, fig.width=10}
+DimPlot(manley_data, group.by = "final_insitutype", label = T, repel = T) + 
+  theme(legend.position = "none")
+```
+On this plot the unknown cluster might make some more sense since it is stretchng across T cell, macrophage, and even across the proliferating tubule groups at the top so it might be a mix of all cell types that didn't perfectly match anywhere.
+
+## Macrophage Annotating
+
+Lets see where the MNP samples lie on the UMAP
+
+```{r, fig.height=10, fig.width=10}
+Idents(manley_data) = "insitutype"
+DimPlot(manley_data, label = T, group.by = "insitutype",
+        cells.highlight = list(WhichCells(manley_data, , idents = c("MNP-c/dendritic cell",
+                                                                  "MNP-d/Tissue macrophage",
+                                                                  "MNP-b/non-classical monocyte derived",
+                                                                  "MNP-a/classical monocyte derived"))), 
+        repel = T,
+        raster.dpi = c(512, 512))
+```
+
+```{r}
+mnp_cell_data = subset(manley_data, subset = insitutype %in% c("MNP-c/dendritic cell",
+                                                                  "MNP-d/Tissue macrophage",
+                                                                  "MNP-b/non-classical monocyte derived",
+                                                                  "MNP-a/classical monocyte derived"))
+```
+
+Just like with the T cells, we have to recluster the subset data in order to know which groups to start testing between to find groups phenotypes
+
+```{r, fig.height = 10, fig.width=10}
+# mnp_cell_data = RunPCA(object = mnp_cell_data, assay = "SCT", npcs = 200, reduction.name = "pca_mnp_cells")
+# saveRDS(mnp_cell_data, "Manley_SMI/results/rds/InSituType/mnp_cells_seurat_pca.rds")
+# mnp_cell_data = readRDS("Manley_SMI/results/rds/InSituType/mnp_cells_seurat_pca.rds")
+# mnp_cell_data = RunUMAP(object = mnp_cell_data, reduction = "pca_mnp_cells", dims = 1:50, assay = "SCT",
+#                       n.components = 2, reduction.name = "SCT_umap_mnp_cells")
+# #clustering with louvain
+# mnp_cell_data = FindNeighbors(mnp_cell_data, dims = 1:50, verbose = TRUE, reduction = "pca_mnp_cells")
+# mnp_cell_data = FindClusters(mnp_cell_data, verbose = TRUE, resolution = 0.4)
+# 
+# saveRDS(mnp_cell_data, "Manley_SMI/results/rds/InSituType/mnp_cells_Louvain_Clustering.rds")
+mnp_cell_data = readRDS("Manley_SMI/results/rds/InSituType/mnp_cells_Louvain_Clustering.rds")
+DimPlot(mnp_cell_data, reduction = "SCT_umap_mnp_cells", group.by = "seurat_clusters", label = T)
+```
+
+## identifying differentially expressed genes in the different clusters
+
+```{r}
+#DEGs = FindAllMarkers(mnp_cell_data, assay = "SCT")
+#saveRDS(DEGs, "Manley_SMI/results/rds/InSituType/MNP_cells_DEGS_inLouvainClusters.rds")
+DEGs = readRDS("Manley_SMI/results/rds/InSituType/MNP_cells_DEGS_inLouvainClusters.rds")
+DEGs %>%
+  filter(p_val_adj < 0.01 & abs(avg_log2FC) > 0.5)
+```
+
+```{r}
+mnp_cell_data$Manual.InSituType = NA
+mnp_cell_data$Manual.InSituType = ifelse(is.na(mnp_cell_data$Manual.InSituType) & mnp_cell_data$seurat_clusters == 0, "M2 macrophage (CD163)", mnp_cell_data$Manual.InSituType)
+mnp_cell_data$Manual.InSituType = ifelse(is.na(mnp_cell_data$Manual.InSituType) & mnp_cell_data$seurat_clusters == 1, "Collecting duct cell", mnp_cell_data$Manual.InSituType) 
+mnp_cell_data$Manual.InSituType = ifelse(is.na(mnp_cell_data$Manual.InSituType) & mnp_cell_data$seurat_clusters == 2, "Regulatory T cell", mnp_cell_data$Manual.InSituType)#overall looks like tregs from top different genes
+mnp_cell_data$Manual.InSituType = ifelse(is.na(mnp_cell_data$Manual.InSituType) & mnp_cell_data$seurat_clusters == 3, "M2 macrophage (CD163)", mnp_cell_data$Manual.InSituType)
+mnp_cell_data$Manual.InSituType = ifelse(is.na(mnp_cell_data$Manual.InSituType) & mnp_cell_data$seurat_clusters == 4, "M1 Macrophage (STAT1)", mnp_cell_data$Manual.InSituType)
+mnp_cell_data$Manual.InSituType = ifelse(is.na(mnp_cell_data$Manual.InSituType) & mnp_cell_data$seurat_clusters == 5, "Myeloid DC", mnp_cell_data$Manual.InSituType) #has MHSCII
+mnp_cell_data$Manual.InSituType = ifelse(is.na(mnp_cell_data$Manual.InSituType) & mnp_cell_data$seurat_clusters == 6, "Neutrophil", mnp_cell_data$Manual.InSituType)
+mnp_cell_data$Manual.InSituType = ifelse(is.na(mnp_cell_data$Manual.InSituType) & mnp_cell_data$seurat_clusters == 7, "Collecting duct cell", mnp_cell_data$Manual.InSituType)
+mnp_cell_data$Manual.InSituType = ifelse(is.na(mnp_cell_data$Manual.InSituType) & mnp_cell_data$seurat_clusters == 8, "Intermediate monocyte", mnp_cell_data$Manual.InSituType)
+mnp_cell_data$Manual.InSituType = ifelse(is.na(mnp_cell_data$Manual.InSituType) & mnp_cell_data$seurat_clusters == 9, "Collecting duct cell", mnp_cell_data$Manual.InSituType) #super tough to determine
+mnp_cell_data$Manual.InSituType = ifelse(is.na(mnp_cell_data$Manual.InSituType) & mnp_cell_data$seurat_clusters == 10, "Neutrophil", mnp_cell_data$Manual.InSituType)
+mnp_cell_data$Manual.InSituType = ifelse(is.na(mnp_cell_data$Manual.InSituType) & mnp_cell_data$seurat_clusters == 11, "Non-classical monocyte", mnp_cell_data$Manual.InSituType)
+mnp_cell_data$Manual.InSituType = ifelse(is.na(mnp_cell_data$Manual.InSituType) & mnp_cell_data$seurat_clusters == 12, "B cell", mnp_cell_data$Manual.InSituType)
+mnp_cell_data$Manual.InSituType = ifelse(is.na(mnp_cell_data$Manual.InSituType) & mnp_cell_data$seurat_clusters == 13, "Classical monocyte", mnp_cell_data$Manual.InSituType)
+```
+
+View the new phenotyped plot
+
+```{r, fig.height = 10, fig.width = 10}
+DimPlot(mnp_cell_data, reduction = "SCT_umap_mnp_cells", group.by = "Manual.InSituType", label = T)
+```
+
+Now to add them back to the original seurat object
+
+```{r}
+manley_data$final_insitutype[manley_data$cell_ID %in% mnp_cell_data$cell_ID] = mnp_cell_data$Manual.InSituType
+```
+
+## Final Visualization
+
+```{r, fig.height = 10, fig.width=10}
+DimPlot(manley_data, group.by ="final_insitutype", label = T, repel = T) +
+  theme(legend.position = "none")
+```
+
+```{r}
+saveRDS(manley_data, "Manley_SMI/results/rds/InSituType/manley_data_manual_TandMonocytes.rds")
+```
+

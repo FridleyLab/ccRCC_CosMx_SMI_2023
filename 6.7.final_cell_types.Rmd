@@ -1,0 +1,132 @@
+---
+title: "Fine Tuning InSituType Phenotypes"
+output: html_notebook
+---
+
+## Libraries Used
+
+```{r}
+library(Seurat)
+library(tidyverse)
+library(plotly)
+```
+
+## Importing Data
+
+Reading in the data that was phenotyped using InSituType from Nanostring.
+
+```{r}
+manley_data = readRDS("Manley_SMI/results/reports/modeling_tumor/manley_data_tumor_fixedFOV.rds")
+```
+
+```{r}
+#updating cell classes to collapsed
+meta_data = manley_data@meta.data
+
+meta_data$lasso_final = ifelse(meta_data$Slide_name == "RCC4" &
+                                 meta_data$fov %in% c(11, 12) &
+                                 meta_data$lasso_optim == "Proximal tubule",
+                               "Tumor", meta_data$lasso_optim)
+meta_data$lasso_final = ifelse(meta_data$fov%%2 == 0 &
+                                 meta_data$final_insitutype_simplified == "Glomerular endothelium",
+                               meta_data$final_insitutype_simplified, meta_data$lasso_final)
+meta_data$annotation[meta_data$fov == 17 & meta_data$Slide_name == "RCC4"] = "Stroma"
+meta_data$annotation[meta_data$fov == 12 & meta_data$Slide_name == "RCC4"] = "Tumor "
+meta_data$annotation[meta_data$fov == 14 & meta_data$Slide_name == "RCC4"] = "Tumor "
+manley_data@meta.data = meta_data
+#saveRDS(manley_data, "Manley_SMI/results/reports/modeling_tumor/manley_data_tumor_final_fixedFOV.rds")
+```
+
+```{r, fig.height = 10, fig.width= 10}
+DimPlot(manley_data, label = T, group.by = "lasso_final", repel = T) + 
+  theme(legend.position = "none")
+```
+
+```{r}
+clinical = read.csv("Manley_SMI/data/manley_files/Clinical.data_acs_02.14.23.csv") %>%
+  mutate(tissue = paste0("RCC", Slide),
+         FOV = as.character(FOV),
+         Histology = gsub(" $", "", Histology))
+#have to change RCC4 FOV17 to a stroma FOV and make the patient ID unique from the other stroma FOV
+clinical$Specimen.ID.primary[clinical$FOV == 17 & clinical$Slide == 4] = 
+  paste0(clinical$Specimen.ID.primary[clinical$FOV == 17 & clinical$Slide == 4], "_")
+clinical$Source[clinical$FOV == 17 & clinical$Slide == 4] = "Stroma"
+clinical$Source[clinical$FOV == 14 & clinical$Slide == 4] = "Tumor"
+clinical$Source[clinical$FOV == 12 & clinical$Slide == 4] = "Tumor"
+write.csv(clinical, "Manley_SMI/data/manley_files/Clinical.data_acs_02.14.23_final.csv")
+
+frequencies = manley_data@meta.data %>%
+  group_by(tissue, fov, lasso_final, annotation) %>%
+  summarise(n = n()) %>%
+  group_by(tissue, annotation) %>%
+  group_map(~{
+    .x %>% 
+      spread(fov, n, fill = 0) %>%
+      gather(fov, n, -lasso_final) %>%
+      mutate(annotation = .y$annotation,
+             tissue = .y$tissue)
+    }) %>%
+  do.call(bind_rows, .) %>%
+  group_by(tissue, fov) %>%
+  mutate(frequency = n/sum(n)*100) %>%
+  full_join(clinical, by = c("fov" = "FOV", "tissue" = "tissue"))
+```
+
+```{r, fig.width = 12, fig.height = 6}
+frequencies %>%
+    filter(tissue == "RCC3", Histology == 'clear cell') %>%
+    group_by(annotation) %>%
+    group_map(~{
+        .x %>% plot_ly(x = ~fov, y = ~frequency, text = ~fov,
+                color = ~lasso_final, legendgroup = ~lasso_final, type = "bar",showlegend = (.y == "Tumor "),
+                hovertemplate = paste('Frequency: %{y:.2f}%',
+                                      '<br>FOV: %{text}')) %>%
+            layout(xaxis=list(
+                title = paste0(unique(as.character(.y$annotation)))
+            ), yaxis=list(title = "Frequency")) %>%
+            layout(barmode = "stack")
+    }) %>%
+    subplot(nrows = 1, margin = 0.05, shareX=F, shareY =T, titleY= T, titleX=T) %>%
+  layout(title = "RCC3 Tumor/Stroma (ccRCC)")
+```
+
+```{r, fig.width = 12, fig.height = 6}
+frequencies %>%
+    filter(tissue == "RCC4", Histology == 'clear cell') %>%
+    group_by(annotation) %>%
+    group_map(~{
+        .x %>% plot_ly(x = ~fov, y = ~frequency, text = ~fov,
+                color = ~lasso_final, legendgroup = ~lasso_final, type = "bar",showlegend = (.y == "Tumor "),
+                hovertemplate = paste('Frequency: %{y:.2f}%',
+                                      '<br>FOV: %{text}')) %>%
+            layout(xaxis=list(
+                title = paste0(unique(as.character(.y$annotation)))
+            ), yaxis=list(title = "Frequency")) %>%
+            layout(barmode = "stack")
+    }) %>%
+    subplot(nrows = 1, margin = 0.05, shareX=F, shareY =T, titleY= T, titleX=T) %>%
+  layout(title = "RCC4 Tumor/Stroma (ccRCC)")
+```
+
+On RCC5, FOV 3 and 17 are missing from the seurat object.
+
+```{r, fig.width = 12, fig.height = 6}
+frequencies %>%
+  filter(tissue == "RCC5", Histology == 'clear cell') %>%
+  group_by(annotation, fov) %>%
+  mutate(allNA = !all(is.na(annotation))) %>%
+  filter(allNA) %>%
+  group_by(annotation) %>%
+  group_map(~{
+        .x %>% plot_ly(x = ~fov, y = ~frequency, text = ~fov,
+                color = ~lasso_final, legendgroup = ~lasso_final, type = "bar",showlegend = (.y == "Tumor "),
+                hovertemplate = paste('Frequency: %{y:.2f}%',
+                                      '<br>FOV: %{text}')) %>%
+      layout(xaxis=list(
+        title = paste0(unique(as.character(.y$annotation)))
+        ), yaxis=list(title = "Frequency")) %>%
+      layout(barmode = "stack")
+    }) %>%
+  subplot(nrows = 1, margin = 0.05, shareX=F, shareY =T, titleY= T, titleX=T) %>%
+  layout(title = "RCC5 Tumor/Stroma (ccRCC)")
+```

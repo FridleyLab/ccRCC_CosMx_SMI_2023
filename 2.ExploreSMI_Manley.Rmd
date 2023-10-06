@@ -1,0 +1,169 @@
+---
+title: "Manley CosMx SMI for ccRCC and pRCC"
+output: html_notebook
+---
+
+This document is for exploring the raw data from Nanostring for Brandon Manley's CosMx SMI data.
+
+In this document we will:
+
+- perform some QC to determine impact of negative probes on output
+- transform the data
+- annotate relative cell types using SingleR and filtered main names from Human Primary Cell Atlas
+- expand the number of PCAs and build new UMAP
+- identify clusters
+- and look at the immune composition by the slide and whether the sample was from the stromal compartment or tumor compartment
+
+```{r libraries}
+library(tidyverse)
+library(Seurat)
+library(SingleR)
+library(celldex)
+library(openxlsx)
+library(BiocParallel)
+```
+
+```{r load_data, eval = F}
+manley_data = readRDS("Manley_SMI/data/SMI-0050_BrandonManley_Moffit/6 Analysis/Data Objects/seurat_object.Rds")
+manley_data[["slide_fov"]] = paste0("slide", manley_data$slide_ID_numeric, "_fov", manley_data$fov)
+Idents(manley_data) = "slide_fov"
+```
+
+To see if there is a trend within the negative probes, we plot the UMAP results annotating the negative probes. If there is a clustering of negative probes, would indicate a heavy contribution to differences between groups coming from negative probes. Additionally, a high abundance of negative probes would be a data red flag.
+
+```{r negative_probe_plots}
+negative_probe_names = manley_data@assays[["Nanostring"]]@counts@Dimnames[[1]] %>%
+  grep("NegPrb[0-9]+", ., value = TRUE)
+# negative_probe_umap_overlay = lapply(negative_probe_names, function(negative_probe_name){
+#   FeaturePlot(manley_data, features = negative_probe_name, slot = "counts", pt.size = 0.1, label.size = 1)
+# })
+# saveRDS(negative_probe_umap_overlay, "Manley_SMI/results/rds/negative_probe_plots.rds")
+negative_probe_umap_overlay = readRDS("Manley_SMI/results/rds/negative_probe_plots.rds")
+tmp = lapply(negative_probe_umap_overlay, print)
+#FeaturePlot(manley_data, features = negative_probe_names, slot = "counts", pt.size = 0.1, label.size = 1)
+```
+
+None of the negative probes are overly concentrated in a single area, nor are they overly abundant which is great. Next we can remove them from our data so they don't contribute to the UMAP projections and transformations.
+
+```{r SCTransform}
+# #subset the count data to include only those genes that are informative and not the negative probes
+# counts = GetAssay(manley_data, assay = "Nanostring")
+# #remove the negaive probe naems
+# counts = counts[-(grep("NegPrb", rownames(counts)))]
+# #subset the manley data to remove the negative probes
+# manley_data = subset(manley_data, features = rownames(counts))
+# #remove counts to keep clean
+# rm(counts)
+```
+
+Seurat documentation recommends `SCTransform` since it tends to maintain biological information better than `NormalizeData` so following the example:
+
+```{r}
+# #perform transformation
+# manley_data = SCTransform(manley_data, assay = "Nanostring", clip.range = c(-10, 10), verbose = TRUE)
+# #save output to import later without rerunning
+# saveRDS(manley_data, "Manley_SMI/results/rds/SCTransform_seurat.rds")
+#read in RDS
+manley_data = readRDS("Manley_SMI/results/rds/SCTransform_seurat.rds")
+```
+
+For annotating, originally was trying to use the Human Primary Cell Atlas data but there were cell types in there that didn't make sense when trying to annotate cells from kidney. Fortunately, Brandon found a paper that used the Kidney Cell Atlas. These data were preprocessed with Manley_SMI/rpgm/KidneyCellAtlas_cleaning.R where the cell information and the gene expression data were saved as data objects. Since they have been processed, we can read them in here as the expression matrix and the cell annotations.
+
+```{r prep_annotation}
+KCA_expression = readRDS("Manley_SMI/data/KidneyCellAtlas/Mature_Full_correctedCounts.rds")
+KCA_meta = readRDS("Manley_SMI/data/KidneyCellAtlas/Mature_Full_v3_metadata.rds")
+```
+
+The function that we used for annotating was SingleR. The input of this requires our gene expression to come out of the SeuratObject and be in an expression matrix. This is easily extracted using `GetAssayData` and specifying the `data` slot.
+
+```{r manley_sce_SingleR_input}
+#extract the tranformed data out of seurat object and create new singlecellexperiment object
+manley_sce = GetAssayData(manley_data, slot = "data")
+#saveRDS(manley_sce, "Manley_SMI/results/rds/manley_sce_SingleR_input.rds")
+```
+
+Since SingleR is able to take in BiocParallel arguments, we can great a multicore type 'swarm' of process that will allow annotation predictions to be performed in parallel cutting down on time. Here I used 8 cores, and passed in the expression matrix from our data, the expression matrix from Kidney Cell Atlas, and the cell phenotypes that were extracted from the h5 object. The predictions were saved as a separate object.
+
+```{r SingleR}
+#provide SingleR with multiple cores to get the deconvolution done faster.
+# multicoreParam <- MulticoreParam(workers = 8)
+# #annotate using the singleR package with the human primary atlas as reference
+# pred_ccrcc = SingleR(test = manley_sce, ref = KCA_expression, assay.type.test = 1, labels = KCA_meta$celltype, BPPARAM = multicoreParam)
+# saveRDS(pred_ccrcc, "Manley_SMI/results/rds/SingleR_predictions.rds")
+pred_ccrcc = readRDS("Manley_SMI/results/rds/SingleR_predictions.rds")
+```
+
+Using the predictions from SingleR using the Kidney Cell Atlas, we can add them back to the SeuratObject's metadata that way we are able to annotate plots later on with the phenotypes that were derived.
+
+```{r}
+#Add singleR annotation back into seurat object
+manley_data[["SingleR.labels"]] = pred_ccrcc$labels
+```
+
+Looking at the UMAP using 30 PCs, it looked like there was a fair amount of "streaking" or bleeding happening between clusters around a center of mass. Since there were only 50 PCs calculated in the SeuratObject from Nanostring, we bumped the number of PCs to 200 to allow for flexibility in the future if we need to use more. A new UMAP on the transformed data was performed using the first 100 PCs.
+
+```{r SCTransform_umap}
+#manley_data = RunPCA(object = manley_data, assay = "SCT", npcs = 200)
+#manley_data = RunUMAP(object = manley_data, dims = 1:100, assay = "SCT", reduction.name = "SCT.umap")
+#saveRDS(manley_data, "Manley_SMI/results/rds/SCTransform_umap.rds")
+manley_data = readRDS("Manley_SMI/results/rds/SCTransform_umap.rds")
+```
+
+With the PCs and annotations roughly performed, we can do some clustering on the data to identify unique clusters of cells. First, neighbors are calculated on the first 30 PCs and then clusters using a resolution 0.8. We can see the fit of the clusters by adding that as the annotation to the new UMAP we calculated from the first 100 PCs.
+
+```{r finding_clustering, fig.height = 10, fig.width = 10}
+#manley_data = FindNeighbors(manley_data, dims = 1:30, verbose = TRUE, reduction = "pca")
+#manley_data = FindClusters(manley_data, verbose = TRUE, resolution = 0.8)
+#saveRDS(manley_data, "Manley_SMI/results/rds/finding_neighbors_clusters.rds")
+manley_data = readRDS("Manley_SMI/results/rds/finding_neighbors_clusters.rds")
+DimPlot(manley_data, reduction = "SCT.umap", group.by = "seurat_clusters", label = T)
+```
+To see if any cluster is made up of a single field of view and if so, identify which field of view(s) do.
+
+```{r, fig.height = 10, fig.width = 10}
+DimPlot(manley_data, reduction = "SCT.umap", group.by = "slide_fov", label = T) +
+  theme(legend.position = 'none')
+```
+
+```{r, fig.width = 20, fig.height = 7, eval = F}
+DimPlot(manley_data, reduction = "SCT.umap", group.by = c("seurat_clusters", "SingleR.labels"), label = T)
+```
+
+FOV 15 on Slide 1 looks like it separates from the that group cleanly on its own, we can annotate the plot with ONLY the points that belong to that field of view and see see if there are cells from that slide (which is a tumor sample) that are part of other clusters which would indicate a high abundance of a single cell type.
+
+```{r, fig.height = 10, fig.width = 10}
+DimPlot(manley_data, label = T, group.by = "SingleR.labels", 
+        cells.highlight = list(WhichCells(manley_data, idents = "slide1_fov15")), repel = T)
+```
+Looks like there are other cell types that are annotated on that slide: Peritubular capillary endothelium and T/NK cells. There also is a low number of pDC, which might be interesting to see their colocalization with CD8+ and CD4+ T-cells (pDCs interaction with priming CD8+ and present antigens to CD4+ T-cells).
+
+Next we can look at the abundance of cell phenotypes on the different slides and plot tumor vs stroma samples. For this, samples that were on the extra FOVs (21, 22, 23) were removed. Likely don't have enough samples to perform analyses with repeated measures, but can always go back later to explore interesting findings on extra cores. 
+
+```{r, fig.height = 10, fig.width = 12}
+manley_data@meta.data %>%
+  data.frame() %>%
+  filter(!(fov > 20)) %>%
+  group_by(tissue, fov, SingleR.labels) %>%
+  mutate(fov_phenotype_N = n()) %>%
+  ungroup() %>%
+  group_by(tissue, fov) %>%
+  mutate(fov_Abundance  = fov_phenotype_N/n()*100,
+         `Tumor/Stroma` = ifelse(fov %% 2 == 0, "Stroma", "Tumor")) %>% 
+  ungroup() %>%
+  select(SingleR.labels,tissue, fov_Abundance, `Tumor/Stroma`) %>%
+  distinct() %>%
+  ggplot() +
+  geom_boxplot(aes(x = SingleR.labels, y = fov_Abundance, fill = `Tumor/Stroma`), position = "dodge") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90)) +
+  facet_grid(tissue~.) +
+  scale_y_log10() +
+  labs(title = "Abundance of cell types on the different slides")
+```
+
+Next, we will look at tuning the annotation of some of the dubgroups (e.g. T-cells).
+
+```{r}
+#saveRDS(manley_data, "Manley_SMI/results/rds/final_explore.rds")
+```
+

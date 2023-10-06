@@ -1,0 +1,160 @@
+---
+title: "InSituType"
+output: html_notebook
+---
+
+```{r libraries}
+library(tidyverse)
+library(Seurat)
+library(InSituType)
+library(MatrixExtra)
+library(RColorBrewer)
+library(ComplexHeatmap)
+```
+
+## Loading Data
+
+Here I am loading in the original Seurat object from Nanostring to get the negative probes back (need for background calculation) as well as the Seurat object that has all of the work so far added to it. This includes the manual annotation of the T cells and monocytes.
+
+```{r import_data}
+manley_data = readRDS("Manley_SMI/data/SMI-0050_BrandonManley_Moffit/6 Analysis/Data Objects/seurat_object.Rds")
+manley_data_new = readRDS("Manley_SMI/results/rds/manley_data_tcell_mnp_manual_annotation.rds")
+manley_data_new
+```
+
+```{r count_matrix}
+#1. count matrix of cells x genes
+counts = manley_data@assays$Nanostring@counts %>% t()
+# this contains the negative controls so we have to pull them out and put them in a new matrix while removing them from the gene count matrix
+neg_counts = counts[,grep("NegPrb", colnames(counts))]
+counts = counts[,grep("NegPrb", colnames(counts), invert = T)]
+
+message("Dimensions of the negative probe count matrix:")
+dim(neg_counts)
+message("Dimensions of the gene count matrix:")
+dim(counts)
+```
+
+```{r neg_vector}
+#2. vector of the negative controls per cell
+negmean = rowMeans(neg_counts)
+message("Average negative probes identified by cell:")
+head(negmean)
+```
+
+```{r expression_profile}
+#3. Expression profiles from InSituType package
+#data(ioprofiles)
+kca_profile = readRDS("Manley_SMI/data/KidneyCellAtlas/KCA_expressionProfile.rds")
+unique(colnames(kca_profile))
+```
+
+update reference profiles
+
+```{r find_anchors, fig.height = 8, fig.width = 12}
+# astats = get_anchor_stats(counts = as.matrix(counts),
+#                           neg = negmean,
+#                           profiles = kca_profile)
+# saveRDS(astats, "Manley_SMI/results/rds/InSituType/astats.rds")
+astats = readRDS("Manley_SMI/results/rds/InSituType/astats.rds")
+negmean.per.totcount = mean(negmean) / mean(rowSums(counts))
+per.cell.bg = rowSums(counts) * negmean.per.totcount
+
+# anchors = choose_anchors_from_stats(counts = as.matrix(counts),
+#                                     neg = negmean,
+#                                     bg = per.cell.bg,
+#                                     anchorstats = astats,
+#                                     #small number for small data
+#                                     n_cells = 1000,
+#                                     min_cosine = 0.4,
+#                                     min_scaled_llr = 0.03,
+#                                     insufficient_anchors_thresh = 5)
+# saveRDS(anchors, "Manley_SMI/results/rds/InSituType/anchors.rds")
+anchors = readRDS("Manley_SMI/results/rds/InSituType/anchors.rds")
+
+#data("iocolors")
+new_dat = data.frame(manley_data_new@reductions$SCT.umap@cell.embeddings) %>%
+  mutate(Anchor = anchors)
+qual_col_pals = brewer.pal.info[brewer.pal.info$category == 'qual',]
+col_vector = unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_col_pals)))
+kca_cols = sample(col_vector, length(unique(anchors[!is.na(anchors)])))
+new_dat %>%
+    ggplot() + 
+    geom_point(aes(x = UMAP_1, y = UMAP_2), color = "peachpuff1", size = 0.1) +
+    geom_point(data = . %>% filter(!is.na(Anchor)), aes(x = UMAP_1, y = UMAP_2, color = Anchor), size = 0.6) +
+    theme_bw() +
+    guides(color = guide_legend(ncol = 1))
+```
+
+use anchors to update profiles
+
+```{r}
+# updated_profiles = updateReferenceProfiles(reference_profiles = kca_profile,
+#                                            counts = as.matrix(counts),
+#                                            neg = negmean,
+#                                            bg = per.cell.bg,
+#                                            anchors = anchors)
+# saveRDS(updated_profiles, "Manley_SMI/results/rds/InSituType/updated_profiles.rds")
+updated_profiles = readRDS("Manley_SMI/results/rds/InSituType/updated_profiles.rds")
+```
+
+creating clusters from the immunofluorescence data
+
+```{r}
+# immunofluordata = manley_data_new@meta.data[,c("Mean.CD298","Mean.PanCK","Mean.CD45","Mean.CD3")]
+# cohort = fastCohorting(immunofluordata,
+#                        gaussian_transform = T)
+#saveRDS(cohort, "Manley_SMI/results/rds/InSituType/immunofluo_cohorts.rds")
+cohort = readRDS("Manley_SMI/results/rds/InSituType/immunofluo_cohorts.rds")
+```
+
+unsupervised clustering - not specifying the number of clusters but rather letting InSituType fit the all of the RCC cells to the Kidney Cell Atlas cell types
+
+```{r}
+# semisup = insitutype(x = as.matrix(counts),
+#                      neg = negmean,
+#                      cohort = cohort,
+#                      bg = NULL,
+#                      n_clusts = 0,
+#                      reference_profiles = updated_profiles$updated_profiles,
+#                      update_reference_profiles = F)
+#saveRDS(semisup, "Manley_SMI/results/rds/InSituType/unsupervised_clustering.rds")
+semisup = readRDS("Manley_SMI/results/rds/InSituType/unsupervised_clustering.rds")
+```
+
+Cell type gene expression for the 959 genes in the SMI dataset
+
+```{r, fig.height = 10, fig.width = 10}
+mat = sweep(semisup$profiles, 1, pmax(apply(semisup$profiles, 1, max), .2), "/")
+ht = Heatmap(matrix = mat, col = circlize::colorRamp2(c(0, 1), c("white", "orange")), show_row_names = F, name = "Expression\nProfiles", border_gp = gpar(col = "black"))
+draw(ht, padding = unit(c(20, 2, 2, 2), "mm"))
+```
+
+Which genes are highest in CD8 T cells?
+
+```{r}
+names(which(mat[,"CD8 T cell"] == 1))
+```
+
+## Flight Path Plot
+
+```{r flightpath, fig.width = 10, fig.height = 10}
+names(kca_cols) = unique(semisup$clust)
+fp = flightpath_plot(flightpath_result = NULL, insitutype_result = semisup, col = kca_cols[semisup$clust])
+fp
+```
+
+Cells (points) that are close to the centroid has a near certain to belong to that cell assignment - for example a point directly between 2 clusters have a 50% posterior probability (updated probability taking into account new information about the cells; Bayesian statistics) of belonging either cell assignment. Numbers in parentheses is the average posterior probability for the cells that are annotated as that cluster.
+
+```{r}
+manley_data_new$insitutype = semisup$clust
+#saveRDS(manley_data_new, "Manley_SMI/results/rds/InSituType/manley_data_final.rds")
+```
+
+Cell assignment on UMAP
+
+```{r, fig.height = 10, fig.width = 10}
+DimPlot(manley_data_new, reduction = "SCT.umap", group.by = "insitutype", label = T, raster.dpi = c(1024, 1024), repel = T) +
+  theme(legend.position = "none")
+```
+
