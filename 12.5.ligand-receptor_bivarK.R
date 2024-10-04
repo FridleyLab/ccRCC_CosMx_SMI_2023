@@ -17,7 +17,7 @@ bi_ripK = readRDS("Manley_SMI/data/validation_dataframes/validation_clinical_biv
   mutate(unique_fov = paste0(tissue, "_FOV", fov)) %>%
   filter(Site == "Tumor",
          FOV <= 20,
-         !(unique_fov %in% c("RCC5_FOV3", "RCC5_FOV13", "RCC5_FOV17", "RCC5_FOV19", "RCC5_FOV20")))
+         !(unique_fov %in% c("RCC5_FOV3", "RCC5_FOV13", "RCC4_FOV17", "RCC5_FOV17", "RCC5_FOV19", "RCC5_FOV20")))
 
 #markers
 markers = bi_ripK$Anchor %>% 

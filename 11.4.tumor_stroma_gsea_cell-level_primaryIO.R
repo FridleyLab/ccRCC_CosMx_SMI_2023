@@ -18,8 +18,8 @@ metadata = readRDS("Manley_SMI/data/final_dataframes/metadata_clinical_spatial.r
 #cell types
 phenotypes = metadata$lasso_final %>% unique()
 #get the stroma and tumor groups
-tumor = metadata %>% filter(Source == "Tumor", !(Sarcomatoid == "Yes" & Pretreatment.IO == "Treatment Naive"), unique_fov %notin% c("RCC5_19", "RCC5_20"))
-stroma = metadata %>% filter(Source == "Stroma", !(Sarcomatoid == "Yes" & Pretreatment.IO == "Treatment Naive"), unique_fov %notin% c("RCC5_19", "RCC5_20"))
+tumor = metadata %>% filter(Source == "Tumor", !(Sarcomatoid == "Yes" & Pretreatment.IO == "Treatment Naive"), unique_fov %notin% c("RCC4_17", "RCC5_19", "RCC5_20"))
+stroma = metadata %>% filter(Source == "Stroma", !(Sarcomatoid == "Yes" & Pretreatment.IO == "Treatment Naive"), unique_fov %notin% c("RCC4_17", "RCC5_19", "RCC5_20"))
 
 
 # Gene Sets ---------------------------------------------------------------

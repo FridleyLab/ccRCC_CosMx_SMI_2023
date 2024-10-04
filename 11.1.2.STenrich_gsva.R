@@ -65,7 +65,7 @@ res = mclapply(slide_fovs, function(sf){
       # Compute the distance between these spots' XY coordinates with high expression
       coords_high_spots = coords_df[coords_df$id %in% high_spots_bc,]
       distances_high_spots = as.matrix(dist(coords_high_spots[, c('CenterX_local_px', 'CenterY_local_px')], method =
-                                                      'euclidean')) # Distance computation
+                                              'euclidean')) # Distance computation
       distances_high_spots[upper.tri(distances_high_spots)] = 0 # Make upper half zero to avoid sum of distances twice
       sum_high_distances = sum(distances_high_spots)
       
@@ -111,7 +111,7 @@ names(res) = slide_fovs
 
 # saveRDS(res, "Manley_SMI/data/pathway_enrichment/STEnrich_output_gsva.rds")
 res = readRDS("Manley_SMI/data/pathway_enrichment/STEnrich_output_gsva.rds")
-res = res[!(names(res) %in% c("RCC5_19", "RCC5_20"))]
+res = res[!(names(res) %in% c("RCC4_17", "RCC5_19", "RCC5_20"))]
 
 joined_significance = lapply(names(res), function(nam){
   d = res[[nam]]
@@ -147,8 +147,8 @@ top_anno = HeatmapAnnotation(df = joined_significance2_tmp %>% select(1, 3, 4, 5
                                         Pretreatment.IO = c("Treatment Naive" = "skyblue", "Received IO" = "magenta")))
 col_fun = circlize::colorRamp2(c(0, 1, 5), c("blue", "white", "red"))
 ht = Heatmap(t(mat), top_annotation = top_anno, cluster_column_slices = TRUE, column_split = joined_significance2_tmp$Source,
-        col = col_fun, name = "-log10(p)", row_names_max_width = max_text_width(colnames(mat)), 
-        column_title = "STenrich - Clustering of Enrichment Scores"); ht
+             col = col_fun, name = "-log10(p)", row_names_max_width = max_text_width(colnames(mat)), 
+             column_title = "STenrich - Clustering of Enrichment Scores"); ht
 
 pdf("Manley_SMI/results/figures/Enrichment/STenrich_msigdb_gsva-scores.pdf", width = 15, height = 12)
 ht
@@ -157,7 +157,7 @@ dev.off()
 
 # non-sarcomatoid ---------------------------------------------------------
 res = readRDS("Manley_SMI/data/pathway_enrichment/STEnrich_output_gsva.rds")
-res = res[!(names(res) %in% c("RCC5_19", "RCC5_20"))]
+res = res[!(names(res) %in% c("RCC4_17", "RCC5_19", "RCC5_20"))]
 
 joined_significance = lapply(names(res), function(nam){
   d = res[[nam]]
@@ -256,7 +256,8 @@ dev.off()
 clinical = metadata %>%
   select(Site:tissue, slide_fov) %>%
   distinct() %>%
-  full_join(joined_significance %>% rownames_to_column("unique_fov"))
+  full_join(joined_significance %>% rownames_to_column("unique_fov")) %>%
+  filter(!(unique_fov %in% c("RCC4_17", "RCC5_19", "RCC5_20")))
 write.csv(clinical, "Manley_SMI/results/GEx/STenrich_hallmark_pathways.csv")
 
 

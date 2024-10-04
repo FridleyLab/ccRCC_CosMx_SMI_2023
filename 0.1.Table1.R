@@ -20,7 +20,8 @@ clin2 = clinical %>%
          Site == "Tumor",
          Histology == "clear cell",
          !(FOV %in% c(3, 17) & tissue == "RCC5"),
-         !(Slide == 5 & FOV %in% c(19, 20)))
+         !(Slide == 5 & FOV %in% c(19, 20)),
+         !(Slide == 4 & FOV %in% c(17)))
 
 #patient counts
 length(unique(clin2$MRN))
@@ -51,6 +52,7 @@ clin2 %>%
 
 #patients by sarcomatoid
 clin2 %>%
+  filter(IT.Treatment.before.collection == "None") %>%
   select(MRN, Sarcomatoid) %>%
   distinct() %>%
   group_by(Sarcomatoid) %>%
@@ -65,6 +67,7 @@ clin2 %>%
 
 #samples by sarcomatoid
 clin2 %>%
+  filter(IT.Treatment.before.collection == "None") %>%
   select(slide, FOV, Sarcomatoid) %>%
   distinct() %>%
   group_by(Sarcomatoid) %>%
@@ -90,3 +93,20 @@ clin2 %>%
   group_by(sample_group) %>%
   summarise(n())
 
+#ns for figure
+clin2 %>%
+  mutate(sample_group = case_when(Sarcomatoid == "No" & Pretreatment.IO == "Treatment Naive" ~ "Treatment Naive non-Sarcomatoid",
+                                  Sarcomatoid == "Yes" & Pretreatment.IO == "Treatment Naive" ~ "Treatment Naive Sarcomatoid", 
+                                  T ~ "Received IO")) %>%
+  group_by(sample_group, Source) %>%
+  summarise(n())
+
+#patients?
+clin2 %>%
+  mutate(sample_group = case_when(Sarcomatoid == "No" & Pretreatment.IO == "Treatment Naive" ~ "Treatment Naive non-Sarcomatoid",
+                                  Sarcomatoid == "Yes" & Pretreatment.IO == "Treatment Naive" ~ "Treatment Naive Sarcomatoid", 
+                                  T ~ "Received IO")) %>%
+  select(sample_group, MRN) %>%
+  distinct() %>%
+  group_by(sample_group) %>%
+  summarise(n())

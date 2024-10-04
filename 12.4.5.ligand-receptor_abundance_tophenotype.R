@@ -21,7 +21,7 @@ uni_k_dat = readRDS("Manley_SMI/data/validation_dataframes/validation_clinical_u
   mutate(unique_fov = paste0(tissue, "_FOV", fov)) %>%
   filter(Site == "Tumor",
          FOV <= 20,
-         !(unique_fov %in% c("RCC5_FOV3", "RCC5_FOV13", "RCC5_FOV17", "RCC5_FOV19", "RCC5_FOV20")))
+         !(unique_fov %in% c("RCC5_FOV3", "RCC5_FOV13", "RCC4_FOV17", "RCC5_FOV17", "RCC5_FOV19", "RCC5_FOV20")))
 mif = readRDS("Manley_SMI/data/UnivariateK_mif/manley_mif_validation.rds")
 
 # notes from brandon ------------------------------------------------------
@@ -306,3 +306,55 @@ results = bind_rows(results, coefficients(summary(model_fit)) %>%
 
 
 write.csv(results, "Manley_SMI/results/mIF_validation/beta-binomial_SMA_results.csv")
+
+
+# Adding plots - May 28, 2024 ---------------------------------------------
+#SMA+ ITGAV+
+#SMA+ COL4A1+
+#PCK+ COL4A1+
+
+clin2 = pre_IO %>%
+  mutate(Group = "IO Naive") %>%
+  bind_rows(post_IO %>%
+              mutate(Group = "IO Exposed")) %>%
+  bind_rows(sarc %>% 
+              mutate(Group = ("Sarcomatoid"))) %>%
+  mutate(Group = factor(Group, levels = c("Sarcomatoid", "IO Naive", "IO Exposed")))
+
+sma_col4_plots = bind_rows(
+  clin2 %>% 
+    select(unique_fov, `Image Tag`, Source, Group) %>% 
+    left_join(sma_col4a1_props2 %>%
+                filter(`SMA (Opal 570) Positive Classification` == 1)) %>%
+    mutate(Abundance = freq * 100,
+           Phenotype = ifelse(`COL4 (Opal 540) Positive Classification` == 1,
+                              "SMA+ COL4+", "SMA+ COL4-")),
+  clin2 %>% 
+    select(unique_fov, `Image Tag`, Source, Group) %>% 
+    left_join(sma_itgav_props2 %>%
+                filter(`SMA (Opal 570) Positive Classification` == 1)) %>%
+    mutate(Abundance = freq * 100,
+           Phenotype = ifelse(`ITGAV (Opal 520) Positive Classification` == 1,
+                              "SMA+ ITGAV+", "SMA+ ITGAV-")) 
+) %>%
+  bind_rows(
+    clin2 %>% 
+      select(unique_fov, `Image Tag`, Source, Group) %>% 
+      left_join(sma_itgav_props2 %>%
+                  filter(`SMA (Opal 570) Positive Classification` == 1) %>%
+                  group_by(`Image Tag`) %>%
+                  summarise(`n()` = sum(`n()`),
+                            total = unique(total)) %>%
+                  mutate(freq = `n()`/total)) %>%
+      mutate(Abundance = freq * 100,
+             Phenotype = "SMA+")
+  ) %>%
+  ggplot() +
+  geom_violin(aes(x = Group, y = Abundance, color = Phenotype)) +
+  facet_grid(~Source) +
+  theme_bw(); sma_col4_plots
+
+
+pdf("Manley_SMI/results/mIF_validation/SMA-COL4A1_ITGAV_abundance_boxplots_reviewer.pdf", height = 5, width = 9)
+sma_col4_plots
+dev.off()

@@ -9,7 +9,7 @@ library(pbmcapply)
 scaled_expression = readRDS("Manley_SMI/data/final_dataframes/sct_scaled_data.rds")
 metadata = readRDS("Manley_SMI/data/final_dataframes/metadata_clinical_spatial.rds") %>%
   filter(fov <= 20, unique_fov != "RCC5_13") %>%
-  filter(unique_fov %notin% c("RCC5_19", "RCC5_20")) %>%
+  filter(unique_fov %notin% c("RCC4_17", "RCC5_19", "RCC5_20")) %>%
   mutate(Sarcomatoid = gsub(" ", "", Sarcomatoid),
          Pretreatment.IO = ifelse(IT.Treatment.before.collection == "None", "Treatment Naive", "Received IO"),
          Pretreatment.IO = factor(Pretreatment.IO, levels = c("Treatment Naive", "Received IO")))

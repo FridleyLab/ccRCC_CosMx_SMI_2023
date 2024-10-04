@@ -73,7 +73,7 @@ lr_pairs=IL6_lr_pairs$lr_pair
 primary_prepost_tumor_meta = metadata %>%
   filter(Site == "Tumor", Source == "Tumor") %>%
   filter(!(Sarcomatoid == "Yes" & Pretreatment.IO == "Treatment Naive")) %>%
-  filter(!(unique_fov %in% c("RCC5_19", "RCC5_20"))) %>%
+  filter(!(unique_fov %in% c("RCC4_17", "RCC5_19", "RCC5_20"))) %>%
   select(unique_fov, Pretreatment.IO) %>% distinct()
 
 primary_prepost_tumor_res = lapply(setNames(lr_pairs, lr_pairs), function(lr_pair){
@@ -88,7 +88,7 @@ primary_prepost_tumor_res = lapply(setNames(lr_pairs, lr_pairs), function(lr_pai
 primary_prepost_stroma_meta = metadata %>%
   filter(Site == "Tumor", Source == "Stroma") %>%
   filter(!(Sarcomatoid == "Yes" & Pretreatment.IO == "Treatment Naive")) %>%
-  filter(!(unique_fov %in% c("RCC5_19", "RCC5_20"))) %>%
+  filter(!(unique_fov %in% c("RCC4_17", "RCC5_19", "RCC5_20"))) %>%
   select(unique_fov, Pretreatment.IO, Sarcomatoid) %>% distinct()
 
 primary_prepost_stroma_res = lapply(setNames(lr_pairs, lr_pairs), function(lr_pair){

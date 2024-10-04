@@ -35,7 +35,7 @@ uniK_dat = manley_mif$derived$univariate_Count %>%
   filter(Histology == "clear cell") %>%
   filter(fov <= 20,
          !(Sarcomatoid == "Yes" & Pretreatment.IO == "Treatment Naive")) %>% #remove pretreatment sarcomatoid samples
-  filter(!(unique_fov %in% c("RCC5_19", "RCC5_20")))
+  filter(!(unique_fov %in% c("RCC4_17", "RCC5_19", "RCC5_20")))
 
 # association with abundances ---------------------------------------------
 

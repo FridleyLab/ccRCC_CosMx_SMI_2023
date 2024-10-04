@@ -100,7 +100,7 @@ dev.off()
 
 #primary stroma (no sarcomatoid) treatment classes
 naive_fovs = stroma %>% filter(Pretreatment.IO == "Treatment Naive", Sarcomatoid == "No") %>% pull(unique_fov) %>% unique()
-postIO_fovs = stroma %>% filter(Pretreatment.IO == "Received IO") %>% pull(unique_fov) %>% unique() %>% grep("RCC5_20", ., value = T, invert = T)
+postIO_fovs = stroma %>% filter(Pretreatment.IO == "Received IO") %>% pull(unique_fov) %>% unique() %>% grep("RCC4_17|RCC5_20", ., value = T, invert = T)
 
 naive_phenotype_scores = lapply(setNames(phenotypes, phenotypes), function(cell){
   lapply(naive_fovs, function(fov){

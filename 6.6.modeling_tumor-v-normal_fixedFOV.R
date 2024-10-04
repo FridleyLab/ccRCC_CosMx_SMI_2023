@@ -1,5 +1,5 @@
 library(tidyverse)
-library(Seurat)
+library(Seurat) #requires 4.3.0 to match our Genome BIology results
 library(plotly)
 library(RColorBrewer)
 library(ggpubr)
